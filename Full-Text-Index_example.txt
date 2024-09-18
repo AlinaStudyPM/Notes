@@ -1,0 +1,70 @@
+--Таблица с текстами
+CREATE TABLE articles (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(128),
+    body TEXT
+);
+
+--Таблица с набором используемых слов для заполнения
+CREATE TABLE word_list (word TEXT);
+INSERT INTO word_list (word) VALUES
+('индекс'), ('индексы'), ('индекса'), 
+('поиск'), ('поиска'), ('поиске'),
+('пример'), ('примере'), ('примеры'),
+('данные'), ('данных'), ('текст'),
+('постгрес'), ('учебник'), ('запрос'),
+('граф'), ('разработка'), ('алгоритм'),
+('база'), ('проект'), ('информация'), ('модель');
+
+--Функция генерации случайного последовательности слов
+CREATE FUNCTION get_articles(g INT)
+RETURNS TABLE (word1 TEXT) AS $$
+BEGIN
+    RETURN QUERY 
+	SELECT word AS word1 FROM word_list 
+	ORDER BY random() LIMIT (5 + (RANDOM() * 15));
+END;
+$$ LANGUAGE plpgsql;
+
+--Заполнение таблицы articles
+INSERT INTO articles (title, body)
+SELECT 
+    'Article ' || gs AS title,
+    string_agg(w.word1, ' ') AS body
+FROM 
+    generate_series(1, 10000) AS gs
+	CROSS JOIN LATERAL
+    get_articles(gs) AS w
+GROUP BY gs;
+
+SELECT * FROM articles;
+
+
+--Поиск одного слова
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE to_tsvector('russian', body) @@ to_tsquery('russian', 'индексы');
+
+--Поиск двух слов
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE to_tsvector('russian', body) @@ to_tsquery('russian', 'индекс & данных');
+
+--Поиск двух слов на заданном расстоянии
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE to_tsvector('russian', body) @@ to_tsquery('russian', 'индекс <2> данных');
+
+
+--Создание индекса GIN
+CREATE INDEX index_gin ON articles USING GIN (to_tsvector('russian', body));
+
+--Индекс GiST
+CREATE INDEX index_gist ON articles USING GiST (to_tsvector('russian', body));
+
+--Удаление всего
+DROP TABLE word_list;
+DROP FUNCTION get_articles(g INT);
+DROP TABLE articles;
+DROP INDEX index_gin;
+DROP INDEX index_gist;
